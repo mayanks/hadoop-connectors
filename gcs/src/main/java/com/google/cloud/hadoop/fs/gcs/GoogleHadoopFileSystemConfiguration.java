@@ -28,7 +28,6 @@ import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemBase.OutputStreamTyp
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions;
-import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.Fadvise;
 import com.google.cloud.hadoop.gcsio.PerformanceCachingGoogleCloudStorageOptions;
 import com.google.cloud.hadoop.gcsio.cooplock.CooperativeLockingOptions;
 import com.google.cloud.hadoop.util.AsyncWriteChannelOptions;
@@ -328,10 +327,6 @@ public class GoogleHadoopFileSystemConfiguration {
   public static final HadoopConfigurationProperty<Long> GCS_INPUT_STREAM_INPLACE_SEEK_LIMIT =
       new HadoopConfigurationProperty<>("fs.gs.inputstream.inplace.seek.limit", 8 * 1024 * 1024L);
 
-  /** Tunes reading objects behavior to optimize HTTP GET requests for various use cases. */
-  public static final HadoopConfigurationProperty<Fadvise> GCS_INPUT_STREAM_FADVISE =
-      new HadoopConfigurationProperty<>("fs.gs.inputstream.fadvise", Fadvise.AUTO);
-
   /**
    * Minimum size in bytes of the HTTP Range header set in GCS request when opening new stream to
    * read an object.
@@ -509,7 +504,6 @@ public class GoogleHadoopFileSystemConfiguration {
         .setSupportGzipEncoding(
             GCS_INPUT_STREAM_SUPPORT_GZIP_ENCODING_ENABLE.get(config, config::getBoolean))
         .setInplaceSeekLimit(GCS_INPUT_STREAM_INPLACE_SEEK_LIMIT.get(config, config::getLong))
-        .setFadvise(GCS_INPUT_STREAM_FADVISE.get(config, config::getEnum))
         .setMinRangeRequestSize(GCS_INPUT_STREAM_MIN_RANGE_REQUEST_SIZE.get(config, config::getInt))
         .setGrpcChecksumsEnabled(GCS_GRPC_CHECKSUMS_ENABLE.get(config, config::getBoolean))
         .setGrpcReadTimeoutMillis(GCS_GRPC_READ_TIMEOUT_MS.get(config, config::getLong))

@@ -1524,7 +1524,6 @@ public class GoogleCloudStorageTest {
     assertThat(trackingRequestInitializerWithRetries.getAllRequestStrings())
         .containsExactly(
             getRequestString(BUCKET_NAME, OBJECT_NAME),
-            getMediaRequestString(BUCKET_NAME, OBJECT_NAME, storageObject.getGeneration()),
             getMediaRequestString(BUCKET_NAME, OBJECT_NAME, storageObject.getGeneration()))
         .inOrder();
   }

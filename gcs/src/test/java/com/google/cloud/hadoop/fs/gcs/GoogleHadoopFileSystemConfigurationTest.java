@@ -43,7 +43,6 @@ import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemBase.GlobAlgorithm;
 import com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystemBase.OutputStreamType;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystemOptions;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageOptions;
-import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.Fadvise;
 import com.google.cloud.hadoop.util.AsyncWriteChannelOptions.PipeType;
 import com.google.cloud.hadoop.util.RedactedString;
 import com.google.cloud.hadoop.util.RequesterPaysOptions.RequesterPaysMode;
@@ -93,7 +92,6 @@ public class GoogleHadoopFileSystemConfigurationTest {
           put("fs.gs.http.max.retry", 10);
           put("fs.gs.http.read-timeout", 20_000);
           put("fs.gs.implicit.dir.repair.enable", true);
-          put("fs.gs.inputstream.fadvise", Fadvise.AUTO);
           put("fs.gs.inputstream.fast.fail.on.not.found.enable", true);
           put("fs.gs.inputstream.inplace.seek.limit", 8 * 1024 * 1024L);
           put("fs.gs.inputstream.min.range.request.size", 2 * 1024 * 1024);

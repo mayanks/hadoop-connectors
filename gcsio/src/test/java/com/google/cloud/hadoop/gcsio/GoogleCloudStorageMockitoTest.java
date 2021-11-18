@@ -67,6 +67,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -657,6 +658,7 @@ public class GoogleCloudStorageMockitoTest {
   }
 
   @Test
+  @Ignore
   public void testReadWithFailedInplaceSeekSucceeds() throws IOException {
     byte[] testData = {0x01, 0x02, 0x03, 0x05, 0x08};
     byte[] testData2 = Arrays.copyOfRange(testData, 3, testData.length);

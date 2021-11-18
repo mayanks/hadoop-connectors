@@ -265,6 +265,17 @@ over default service account impersonation.
     [GZIP encoded](https://cloud.google.com/storage/docs/transcoding#decompressive_transcoding)
     files is inefficient and error-prone in Hadoop and Spark.
 
+*   `fs.gs.inputstream.inplace.seek.limit` (default: `8388608`)
+
+    If forward seeks are within this many bytes of the current position, seeks
+    are performed by reading and discarding bytes in-place rather than opening a
+    new underlying stream.
+
+*   `fs.gs.inputstream.min.range.request.size` (default: `2097152`)
+
+    Minimum size in bytes of the read range for Cloud Storage request when
+    opening a new stream to read an object.
+
 *   `fs.gs.outputstream.buffer.size` (default: `8388608`)
 
     Write buffer size.
@@ -386,49 +397,6 @@ over default service account impersonation.
 *   `fs.gs.token.server.url` (default: `https://oauth2.googleapis.com/token`)
 
     Google Token Server root URL.
-
-### Fadvise feature configuration
-
-*   `fs.gs.inputstream.fadvise` (default: `AUTO`)
-
-    Tunes reading objects behavior to optimize HTTP GET requests for various use
-    cases.
-
-    This property controls fadvise feature that allows to read objects in
-    different modes:
-
-    *   `SEQUENTIAL` - in this mode connector sends a single streaming
-        (unbounded) Cloud Storage request to read object from a specified
-        position sequentially.
-
-    *   `RANDOM` - in this mode connector will send bounded Cloud Storage range
-        requests (specified through HTTP Range header) which are more efficient
-        in some cases (e.g. reading objects in row-columnar file formats like
-        ORC, Parquet, etc).
-
-        Range request size is limited by whatever is greater, `fs.gs.io.buffer`
-        or read buffer size passed by a client.
-
-        To avoid sending too small range requests (couple bytes) - could happen
-        if `fs.gs.io.buffer` is 0 and client passes very small read buffer,
-        minimum range request size is limited to 1 MiB by default configurable
-        through `fs.gs.inputstream.min.range.request.size` property
-
-    *   `AUTO` - in this mode (adaptive range reads) connector starts to send
-        bounded range requests when reading non gzip-encoded objects instead of
-        streaming requests as soon as first backward read or forward read for
-        more than `fs.gs.inputstream.inplace.seek.limit` bytes was detected.
-
-*   `fs.gs.inputstream.inplace.seek.limit` (default: `8388608`)
-
-    If forward seeks are within this many bytes of the current position, seeks
-    are performed by reading and discarding bytes in-place rather than opening a
-    new underlying stream.
-
-*   `fs.gs.inputstream.min.range.request.size` (default: `2097152`)
-
-    Minimum size in bytes of the read range for Cloud Storage request when
-    opening a new stream to read an object.
 
 ### Performance cache configuration
 

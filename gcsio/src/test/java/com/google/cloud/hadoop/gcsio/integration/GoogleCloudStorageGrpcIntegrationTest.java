@@ -12,7 +12,6 @@ import com.google.cloud.hadoop.gcsio.GoogleCloudStorage;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageImpl;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageItemInfo;
 import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions;
-import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.Fadvise;
 import com.google.cloud.hadoop.gcsio.StorageResourceId;
 import com.google.cloud.hadoop.gcsio.integration.GoogleCloudStorageTestHelper.TestBucketHelper;
 import com.google.cloud.hadoop.util.AsyncWriteChannelOptions;
@@ -251,7 +250,6 @@ public class GoogleCloudStorageGrpcIntegrationTest {
         GoogleCloudStorageReadOptions.builder()
             .setInplaceSeekLimit(50)
             .setMinRangeRequestSize(minRangeRequestSize)
-            .setFadvise(Fadvise.RANDOM)
             .setGrpcChecksumsEnabled(true)
             .build();
     assertObjectContent(
@@ -449,7 +447,6 @@ public class GoogleCloudStorageGrpcIntegrationTest {
             .setInplaceSeekLimit(inPlaceSeekLimit)
             .setMinRangeRequestSize(minRangeRequestSize)
             .setGrpcChecksumsEnabled(false)
-            .setFadvise(Fadvise.RANDOM)
             .build();
     SeekableByteChannel readableByteChannel = rawStorage.open(objectToCreate, readOptions);
     int newPosition = 7 * 1024;
@@ -465,11 +462,11 @@ public class GoogleCloudStorageGrpcIntegrationTest {
   }
 
   @Test
-  public void testReadBeyondRangeWithFadviseRandom() throws IOException {
+  public void testReadBeyondRange() throws IOException {
     AsyncWriteChannelOptions asyncWriteChannelOptions = AsyncWriteChannelOptions.builder().build();
     GoogleCloudStorage rawStorage = createGoogleCloudStorage(asyncWriteChannelOptions);
     StorageResourceId objectToCreate =
-        new StorageResourceId(BUCKET_NAME, "testReadBeyondRangeWithFadviseRandom_Object");
+        new StorageResourceId(BUCKET_NAME, "testReadBeyondRange_Object");
     int objectSize = 20 * 1024;
     int inPlaceSeekLimit = 8 * 1024;
     int minRangeRequestSize = 4 * 1024;
@@ -481,71 +478,6 @@ public class GoogleCloudStorageGrpcIntegrationTest {
             .setInplaceSeekLimit(inPlaceSeekLimit)
             .setMinRangeRequestSize(minRangeRequestSize)
             .setGrpcChecksumsEnabled(false)
-            .setFadvise(Fadvise.RANDOM)
-            .build();
-    SeekableByteChannel readableByteChannel = rawStorage.open(objectToCreate, readOptions);
-    int newPosition = 7 * 1024;
-    readableByteChannel.position(newPosition);
-    ByteBuffer readBuffer = ByteBuffer.wrap(readArray);
-    int bytesRead = readableByteChannel.read(readBuffer);
-    byte[] trimmedObjectBytes =
-        Arrays.copyOfRange(objectBytes, newPosition, newPosition + totalBytes);
-    byte[] readBufferByteArray = Arrays.copyOf(readBuffer.array(), readBuffer.limit());
-
-    assertEquals(totalBytes, bytesRead);
-    assertByteArrayEquals(trimmedObjectBytes, readBufferByteArray);
-  }
-
-  @Test
-  public void testReadBeyondRangeWithFadviseAuto() throws IOException {
-    AsyncWriteChannelOptions asyncWriteChannelOptions = AsyncWriteChannelOptions.builder().build();
-    GoogleCloudStorage rawStorage = createGoogleCloudStorage(asyncWriteChannelOptions);
-    StorageResourceId objectToCreate =
-        new StorageResourceId(BUCKET_NAME, "testReadBeyondRangeWithFadviseAuto_Object");
-    int objectSize = 20 * 1024;
-    int inPlaceSeekLimit = 8 * 1024;
-    int minRangeRequestSize = 4 * 1024;
-    byte[] objectBytes = writeObject(rawStorage, objectToCreate, /* objectSize= */ objectSize);
-    int totalBytes = 2 * 1024;
-    byte[] readArray = new byte[totalBytes];
-    GoogleCloudStorageReadOptions readOptions =
-        GoogleCloudStorageReadOptions.builder()
-            .setInplaceSeekLimit(inPlaceSeekLimit)
-            .setMinRangeRequestSize(minRangeRequestSize)
-            .setGrpcChecksumsEnabled(false)
-            .setFadvise(Fadvise.AUTO)
-            .build();
-    SeekableByteChannel readableByteChannel = rawStorage.open(objectToCreate, readOptions);
-    int newPosition = 7 * 1024;
-    readableByteChannel.position(newPosition);
-    ByteBuffer readBuffer = ByteBuffer.wrap(readArray);
-    int bytesRead = readableByteChannel.read(readBuffer);
-    byte[] trimmedObjectBytes =
-        Arrays.copyOfRange(objectBytes, newPosition, newPosition + totalBytes);
-    byte[] readBufferByteArray = Arrays.copyOf(readBuffer.array(), readBuffer.limit());
-
-    assertEquals(totalBytes, bytesRead);
-    assertByteArrayEquals(trimmedObjectBytes, readBufferByteArray);
-  }
-
-  @Test
-  public void testReadBeyondRangeWithFadviseSequential() throws IOException {
-    AsyncWriteChannelOptions asyncWriteChannelOptions = AsyncWriteChannelOptions.builder().build();
-    GoogleCloudStorage rawStorage = createGoogleCloudStorage(asyncWriteChannelOptions);
-    StorageResourceId objectToCreate =
-        new StorageResourceId(BUCKET_NAME, "testReadBeyondRangeWithFadviseSequential_Object");
-    int objectSize = 20 * 1024;
-    int inPlaceSeekLimit = 8 * 1024;
-    int minRangeRequestSize = 4 * 1024;
-    byte[] objectBytes = writeObject(rawStorage, objectToCreate, /* objectSize= */ objectSize);
-    int totalBytes = 2 * 1024;
-    byte[] readArray = new byte[totalBytes];
-    GoogleCloudStorageReadOptions readOptions =
-        GoogleCloudStorageReadOptions.builder()
-            .setInplaceSeekLimit(inPlaceSeekLimit)
-            .setMinRangeRequestSize(minRangeRequestSize)
-            .setGrpcChecksumsEnabled(false)
-            .setFadvise(Fadvise.SEQUENTIAL)
             .build();
     SeekableByteChannel readableByteChannel = rawStorage.open(objectToCreate, readOptions);
     int newPosition = 7 * 1024;

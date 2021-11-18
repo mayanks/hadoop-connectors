@@ -34,7 +34,6 @@ import com.google.api.client.http.HttpRequest;
 import com.google.api.client.testing.http.MockHttpTransport;
 import com.google.api.services.storage.Storage;
 import com.google.api.services.storage.model.StorageObject;
-import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.Fadvise;
 import com.google.cloud.hadoop.util.testing.MockHttpTransportHelper.ErrorResponses;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -90,93 +89,6 @@ public class GoogleCloudStorageReadChannelTest {
   }
 
   @Test
-  public void fadviseAuto_onForwardRead_switchesToRandom() throws IOException {
-    int seekPosition = 5;
-    byte[] testData = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
-    byte[] testData2 = Arrays.copyOfRange(testData, seekPosition, testData.length);
-
-    MockHttpTransport transport =
-        mockTransport(
-            // 1st read request response
-            dataRangeResponse(Arrays.copyOfRange(testData, 1, testData.length), 1, testData.length),
-            // 2nd read request response
-            dataRangeResponse(testData2, seekPosition, testData2.length));
-
-    List<HttpRequest> requests = new ArrayList<>();
-
-    Storage storage = new Storage(transport, JSON_FACTORY, requests::add);
-
-    GoogleCloudStorageReadOptions options =
-        newLazyReadOptionsBuilder()
-            .setFadvise(Fadvise.AUTO)
-            .setMinRangeRequestSize(1)
-            .setInplaceSeekLimit(2)
-            .build();
-
-    GoogleCloudStorageReadChannel readChannel = createReadChannel(storage, options);
-
-    byte[] readBytes = new byte[1];
-
-    readChannel.position(1);
-    assertThat(readChannel.read(ByteBuffer.wrap(readBytes))).isEqualTo(1);
-    assertThat(readBytes).isEqualTo(new byte[] {testData[1]});
-
-    readChannel.position(seekPosition);
-    assertThat(readChannel.randomAccess).isFalse();
-
-    assertThat(readChannel.read(ByteBuffer.wrap(readBytes))).isEqualTo(1);
-    assertThat(readBytes).isEqualTo(new byte[] {testData[seekPosition]});
-    assertThat(readChannel.randomAccess).isTrue();
-
-    List<String> rangeHeaders =
-        requests.stream().map(r -> r.getHeaders().getRange()).collect(toList());
-
-    assertThat(rangeHeaders).containsExactly("bytes=1-", "bytes=5-5").inOrder();
-  }
-
-  @Test
-  public void fadviseAuto_onBackwardRead_switchesToRandom() throws IOException {
-    int seekPosition = 5;
-    byte[] testData = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
-    byte[] testData2 = Arrays.copyOfRange(testData, seekPosition, testData.length);
-
-    MockHttpTransport transport =
-        mockTransport(
-            // 1st read request response
-            dataRangeResponse(testData2, seekPosition, testData2.length),
-            // 2nd read request response
-            dataRangeResponse(testData, 0, testData.length));
-
-    List<HttpRequest> requests = new ArrayList<>();
-
-    Storage storage = new Storage(transport, JSON_FACTORY, requests::add);
-
-    GoogleCloudStorageReadOptions options =
-        newLazyReadOptionsBuilder().setFadvise(Fadvise.AUTO).setMinRangeRequestSize(1).build();
-
-    GoogleCloudStorageReadChannel readChannel = createReadChannel(storage, options);
-
-    byte[] readBytes = new byte[1];
-
-    readChannel.position(seekPosition);
-
-    assertThat(readChannel.read(ByteBuffer.wrap(readBytes))).isEqualTo(1);
-    assertThat(readBytes).isEqualTo(new byte[] {testData[seekPosition]});
-
-    readChannel.position(0);
-    assertThat(readChannel.randomAccess).isFalse();
-
-    assertThat(readChannel.read(ByteBuffer.wrap(readBytes))).isEqualTo(1);
-    assertThat(readBytes).isEqualTo(new byte[] {testData[0]});
-    assertThat(readChannel.randomAccess).isTrue();
-
-    List<String> rangeHeaders =
-        requests.stream().map(r -> r.getHeaders().getRange()).collect(toList());
-
-    assertThat(rangeHeaders).containsExactly("bytes=5-", "bytes=0-0").inOrder();
-  }
-
-  @Test
   public void footerPrefetch_reused() throws IOException {
     int footeSize = 2;
     byte[] testData = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
@@ -195,10 +107,7 @@ public class GoogleCloudStorageReadChannelTest {
     Storage storage = new Storage(transport, JSON_FACTORY, requests::add);
 
     GoogleCloudStorageReadOptions options =
-        newLazyReadOptionsBuilder()
-            .setFadvise(Fadvise.RANDOM)
-            .setMinRangeRequestSize(footeSize)
-            .build();
+        newLazyReadOptionsBuilder().setMinRangeRequestSize(footeSize).build();
 
     GoogleCloudStorageReadChannel readChannel = createReadChannel(storage, options);
     assertThat(requests).isEmpty();

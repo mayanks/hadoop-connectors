@@ -22,7 +22,6 @@ import static java.util.stream.Collectors.toList;
 import static org.junit.Assert.assertThrows;
 
 import com.google.api.client.auth.oauth2.Credential;
-import com.google.cloud.hadoop.gcsio.GoogleCloudStorageReadOptions.Fadvise;
 import com.google.cloud.hadoop.gcsio.integration.GoogleCloudStorageTestHelper;
 import com.google.cloud.hadoop.gcsio.testing.TestConfiguration;
 import com.google.cloud.hadoop.util.AsyncWriteChannelOptions;
@@ -547,10 +546,7 @@ public class GoogleCloudStorageFileSystemIntegrationTest {
     int offset = 5;
     // These read options force the readChannel to open stream again on second read.
     GoogleCloudStorageReadOptions readOptions =
-        GoogleCloudStorageReadOptions.builder()
-            .setFadvise(Fadvise.RANDOM)
-            .setMinRangeRequestSize(0)
-            .build();
+        GoogleCloudStorageReadOptions.builder().setMinRangeRequestSize(0).build();
     try (SeekableByteChannel readChannel = gcsiHelper.open(testObject, readOptions)) {
       String read1 = gcsiHelper.readText(readChannel, 0, offset, false);
       assertWithMessage("partial read mismatch")

@@ -27,13 +27,6 @@ import com.google.auto.value.AutoValue;
 @AutoValue
 public abstract class GoogleCloudStorageReadOptions {
 
-  /** Operational modes of fadvise feature. */
-  public enum Fadvise {
-    AUTO,
-    RANDOM,
-    SEQUENTIAL
-  }
-
   public static final int DEFAULT_BACKOFF_INITIAL_INTERVAL_MILLIS = 200;
   public static final double DEFAULT_BACKOFF_RANDOMIZATION_FACTOR = 0.5;
   public static final double DEFAULT_BACKOFF_MULTIPLIER = 1.5;
@@ -42,7 +35,6 @@ public abstract class GoogleCloudStorageReadOptions {
   public static final boolean DEFAULT_FAST_FAIL_ON_NOT_FOUND = true;
   public static final boolean DEFAULT_SUPPORT_GZIP_ENCODING = true;
   public static final long DEFAULT_INPLACE_SEEK_LIMIT = 8 * 1024 * 1024;
-  public static final Fadvise DEFAULT_FADVISE = Fadvise.SEQUENTIAL;
   public static final int DEFAULT_MIN_RANGE_REQUEST_SIZE = 2 * 1024 * 1024;
   public static final boolean GRPC_CHECKSUMS_ENABLED_DEFAULT = false;
   public static final long DEFAULT_GRPC_READ_TIMEOUT_MILLIS = 30 * 1000;
@@ -64,7 +56,6 @@ public abstract class GoogleCloudStorageReadOptions {
         .setFastFailOnNotFound(DEFAULT_FAST_FAIL_ON_NOT_FOUND)
         .setSupportGzipEncoding(DEFAULT_SUPPORT_GZIP_ENCODING)
         .setInplaceSeekLimit(DEFAULT_INPLACE_SEEK_LIMIT)
-        .setFadvise(DEFAULT_FADVISE)
         .setMinRangeRequestSize(DEFAULT_MIN_RANGE_REQUEST_SIZE)
         .setGrpcChecksumsEnabled(GRPC_CHECKSUMS_ENABLED_DEFAULT)
         .setGrpcReadTimeoutMillis(DEFAULT_GRPC_READ_TIMEOUT_MILLIS)
@@ -98,9 +89,6 @@ public abstract class GoogleCloudStorageReadOptions {
 
   /** See {@link Builder#setInplaceSeekLimit}. */
   public abstract long getInplaceSeekLimit();
-
-  /** See {@link Builder#setFadvise}. */
-  public abstract Fadvise getFadvise();
 
   /** See {@link Builder#setMinRangeRequestSize}. */
   public abstract int getMinRangeRequestSize();
@@ -178,21 +166,6 @@ public abstract class GoogleCloudStorageReadOptions {
      * rather than trying to open a brand-new underlying stream.
      */
     public abstract Builder setInplaceSeekLimit(long inplaceSeekLimit);
-
-    /**
-     * Sets fadvise mode that tunes behavior to optimize HTTP GET requests for various use cases.
-     *
-     * <p>Supported modes:
-     *
-     * <ul>
-     *   <li>{@code AUTO} - automatically switches to {@code RANDOM} mode if backward read or
-     *       forward read for more than {@link #setInplaceSeekLimit} bytes is detected.
-     *   <li>{@code RANDOM} - sends HTTP requests with {@code Range} header set to greater of
-     *       provided reade buffer by user.
-     *   <li>{@code SEQUENTIAL} - sends HTTP requests with unbounded {@code Range} header.
-     * </ul>
-     */
-    public abstract Builder setFadvise(Fadvise fadvise);
 
     /**
      * Sets the minimum size of the HTTP Range header that could be set in GCS request when opening
