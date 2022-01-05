@@ -151,8 +151,7 @@ import org.apache.hadoop.util.Progressable;
  * tests and HDFS tests against the same test data and use that as a guide to decide whether to
  * throw or to return false.
  */
-public abstract class GoogleHadoopFileSystemBase extends FileSystem
-    implements FileSystemDescriptor {
+abstract class GoogleHadoopFileSystemBase extends FileSystem implements FileSystemDescriptor {
 
   private static final GoogleLogger logger = GoogleLogger.forEnclosingClass();
 
