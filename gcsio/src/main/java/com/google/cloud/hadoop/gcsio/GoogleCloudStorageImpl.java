@@ -26,6 +26,7 @@ import static com.google.common.base.Strings.emptyToNull;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.collect.Sets.newConcurrentHashSet;
 import static java.lang.Math.toIntExact;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
@@ -70,6 +71,7 @@ import com.google.cloud.hadoop.util.RetryDeterminer;
 import com.google.cloud.hadoop.util.RetryHttpInitializer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -776,6 +778,7 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
       return info != null
           ? new GoogleCloudStorageGrpcReadChannel(
               storageStubProvider,
+              backgroundTasksThreadPool,
               info,
               watchdog,
               metricsRecorder,
@@ -783,6 +786,7 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
               BackOffFactory.DEFAULT)
           : new GoogleCloudStorageGrpcReadChannel(
               storageStubProvider,
+              backgroundTasksThreadPool,
               storage,
               resourceId,
               watchdog,
@@ -2165,13 +2169,23 @@ public class GoogleCloudStorageImpl implements GoogleCloudStorage {
             // Request only fields used in GoogleCloudStorageItemInfo:
             // https://cloud.google.com/storage/docs/json_api/v1/objects#resource-representations
             .setFields(OBJECT_FIELDS);
+    Stopwatch metadataStopwatch = Stopwatch.createStarted();
+
     try {
-      return getObject.execute();
+      StorageObject object = getObject.execute();
+
+      logger.atInfo().log(
+          "GoogleCloudStorageImpl:getMetadata complete context:%d,time:%d,resource:%s",
+          Thread.currentThread().getId(), metadataStopwatch.elapsed(MILLISECONDS), resourceId);
+      return object;
     } catch (IOException e) {
       if (errorExtractor.itemNotFound(e)) {
         logger.atFiner().withCause(e).log("getObject(%s): not found", resourceId);
         return null;
       }
+      logger.atSevere().withCause(e).log(
+          "GoogleCloudStorageImpl:getMetadata exception context:%d,time:%d,resource:%s",
+          Thread.currentThread().getId(), metadataStopwatch.elapsed(MILLISECONDS), resourceId);
       throw new IOException("Error accessing " + resourceId, e);
     }
   }

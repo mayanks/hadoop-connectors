@@ -66,6 +66,9 @@ import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import javax.annotation.Nullable;
 
 public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
@@ -114,14 +117,16 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
   // the most recently received content and a reference to how much of it we've returned so far.
   @Nullable private ByteString bufferedContent;
 
-  private int bufferedContentReadOffset;
-
   // InputStream that backs bufferedContent. This needs to be closed when bufferedContent is no
   // longer needed.
   @Nullable private InputStream streamForBufferedContent;
 
   // The streaming read operation. If null, there is not an in-flight read in progress.
   @Nullable private Iterator<ReadObjectResponse> resIterator;
+
+  private ExecutorService threadPool;
+  private Future downloadOperation;
+  private LinkedBlockingQueue<DownloadOperationParams> readQueue;
 
   // Fine-grained options.
   private final GoogleCloudStorageReadOptions readOptions;
@@ -149,6 +154,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
   @VisibleForTesting
   GoogleCloudStorageGrpcReadChannel(
       StorageStubProvider stubProvider,
+      ExecutorService threadPool,
       Storage storage,
       StorageResourceId resourceId,
       Watchdog watchdog,
@@ -160,6 +166,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     this.useZeroCopyMarshaller =
         ZeroCopyReadinessChecker.isReady() && readOptions.isGrpcReadZeroCopyEnabled();
     this.metricsRecorder = metricsRecorder;
+    this.threadPool = threadPool;
     this.stub = stubProvider.newBlockingStub();
     this.backOffFactory = backOffFactory;
     GoogleCloudStorageItemInfo itemInfo = getObjectMetadata(resourceId, storage);
@@ -208,6 +215,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
    */
   GoogleCloudStorageGrpcReadChannel(
       StorageStubProvider stubProvider,
+      ExecutorService threadPool,
       GoogleCloudStorageItemInfo itemInfo,
       Watchdog watchdog,
       MetricsRecorder metricsRecorder,
@@ -218,6 +226,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     this.useZeroCopyMarshaller =
         ZeroCopyReadinessChecker.isReady() && readOptions.isGrpcReadZeroCopyEnabled();
     this.metricsRecorder = metricsRecorder;
+    this.threadPool = threadPool;
     this.stub = stubProvider.newBlockingStub();
     this.resourceId = itemInfo.getResourceId();
     this.objectGeneration = itemInfo.getContentGeneration();
@@ -240,8 +249,12 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     do {
       Stopwatch stopwatch = Stopwatch.createStarted();
       try {
+        Stopwatch metadataStopwatch = Stopwatch.createStarted();
         Get metadataRequest = getMetadataRequest(gcs, resourceId).setFields(METADATA_FIELDS);
         object = metadataRequest.execute();
+        logger.atInfo().log(
+            "GoogleCloudStorageGrpcReadChannel:getMetadata complete context:%d,time:%d,resource:%s",
+            Thread.currentThread().getId(), metadataStopwatch.elapsed(MILLISECONDS), resourceId);
         recordSuccessMetric(LATENCY_MS, stopwatch, METHOD_GET_OBJECT_METADATA, PROTOCOL_JSON);
         return GoogleCloudStorageItemInfo.createObject(
             resourceId,
@@ -360,11 +373,10 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
   private int readBufferedContentInto(ByteBuffer byteBuffer) {
     // Handle skipping forward through the buffer for a seek.
     long bytesToSkip = positionForNextRead - positionInGrpcStream;
-    long bufferSkip = min(bufferedContent.size() - bufferedContentReadOffset, bytesToSkip);
+    long bufferSkip = min(bufferedContent.size(), bytesToSkip);
     bufferSkip = max(0, bufferSkip);
-    bufferedContentReadOffset += bufferSkip;
     positionInGrpcStream += bufferSkip;
-    int remainingBufferedBytes = bufferedContent.size() - bufferedContentReadOffset;
+    int remainingBufferedBytes = (int) (bufferedContent.size() - bufferSkip);
 
     boolean remainingBufferedContentLargerThanByteBuffer =
         remainingBufferedBytes > byteBuffer.remaining();
@@ -372,11 +384,11 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
         remainingBufferedContentLargerThanByteBuffer
             ? byteBuffer.remaining()
             : remainingBufferedBytes;
-    put(bufferedContent, bufferedContentReadOffset, bytesToWrite, byteBuffer);
+    put(bufferedContent, (int) bufferSkip, bytesToWrite, byteBuffer);
     positionInGrpcStream += bytesToWrite;
     positionForNextRead = positionInGrpcStream;
     if (remainingBufferedContentLargerThanByteBuffer) {
-      bufferedContentReadOffset += bytesToWrite;
+      bufferedContent = bufferedContent.substring((int) (bytesToWrite + bufferSkip));
     } else {
       invalidateBufferedContent();
     }
@@ -402,7 +414,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
   @Override
   public int read(ByteBuffer byteBuffer) throws IOException {
-    logger.atFiner().log(
+    logger.atFinest().log(
         "GCS gRPC read request for up to %d bytes at offset %d from object '%s'",
         byteBuffer.remaining(), position(), resourceId);
     metricsRecorder.recordTaggedStat(METHOD, "read", REQUESTS, 1L);
@@ -413,6 +425,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
     int bytesRead = 0;
     updateReadStrategy();
+    Stopwatch readStopwatch = Stopwatch.createStarted();
 
     if (!canReadFromExistingRequest(byteBuffer)) {
       positionInGrpcStream = positionForNextRead;
@@ -440,7 +453,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
       there are exceptions). So if footerBuffer is null and we are trying to read into footer
       region, we may just cache the footer
     */
-    if ((resIterator == null)
+    if ((downloadOperation == null)
         && (footerBuffer == null)
         && (positionForNextRead >= footerStartOffsetInBytes)) {
       this.footerBuffer = getFooterContent();
@@ -460,6 +473,15 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
           resourceId, positionInGrpcStream);
     }
 
+    long elapsed = readStopwatch.elapsed(MILLISECONDS);
+    if (elapsed > 1000) {
+      logger.atInfo().log(
+          "GoogleCloudStorageGrpcReadChannel:read complete context:%d,time:%d,read:%d,resource:%s",
+          Thread.currentThread().getId(),
+          readStopwatch.elapsed(MILLISECONDS),
+          bytesRead,
+          resourceId);
+    }
     return bytesRead;
   }
 
@@ -479,16 +501,19 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     do {
       Stopwatch stopwatch = Stopwatch.createStarted();
       try {
-        if (resIterator == null) {
+        if (downloadOperation == null) {
           positionInGrpcStream = positionForNextRead;
           resIterator =
               requestObjectMedia(
                   resourceId.getObjectName(), objectGeneration, positionInGrpcStream, bytesToRead);
+          readQueue = new LinkedBlockingQueue<DownloadOperationParams>(20);
+
+          downloadOperation = threadPool.submit(new DownloadOperation(resIterator, readQueue));
           if (bytesToRead.isPresent()) {
             contentChannelEndOffset = positionInGrpcStream + bytesToRead.getAsLong();
           }
         }
-        while (byteBuffer.hasRemaining() && moreServerContent()) {
+        while (byteBuffer.hasRemaining() && !(downloadOperation.isDone() && readQueue.isEmpty())) {
           read += readObjectContentFromGCS(byteBuffer);
         }
         recordSuccessMetric(LATENCY_MS, stopwatch, METHOD_GET_OBJECT_MEDIA, PROTOCOL_GRPC);
@@ -502,7 +527,70 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
     throw convertError(statusRuntimeException, resourceId);
   }
 
-  private boolean isByteBufferWithinCurrentRequestRange(ByteBuffer byteBuffer) {
+  private class DownloadOperationParams {
+    private ReadObjectResponse response;
+    private StatusRuntimeException exception;
+
+    public DownloadOperationParams() {}
+
+    public DownloadOperationParams(StatusRuntimeException exception) {
+      this.exception = exception;
+    }
+
+    public DownloadOperationParams(ReadObjectResponse response) {
+      this.response = response;
+    }
+
+    public ReadObjectResponse getResponse() {
+      return response;
+    }
+
+    public StatusRuntimeException getException() {
+      return exception;
+    }
+  }
+
+  private class DownloadOperation implements Runnable {
+
+    private Iterator<ReadObjectResponse> resIterator;
+    private LinkedBlockingQueue<DownloadOperationParams> readQueue;
+
+    DownloadOperation(
+        Iterator<ReadObjectResponse> resIterator,
+        LinkedBlockingQueue<DownloadOperationParams> readQueue) {
+      this.resIterator = resIterator;
+      this.readQueue = readQueue;
+    }
+
+    public void run() {
+      while (true) {
+        boolean moreDataAvailable;
+        try {
+          moreDataAvailable = resIterator.hasNext();
+        } catch (StatusRuntimeException exception) {
+          try {
+            readQueue.put(new DownloadOperationParams(exception)); // Upstream exception
+          } catch (InterruptedException e) {
+            e.printStackTrace();
+          }
+          break;
+        }
+        try {
+          if (moreDataAvailable) {
+            readQueue.put(new DownloadOperationParams(resIterator.next())); // Process next chunk
+          } else {
+            readQueue.put(new DownloadOperationParams()); // Denotes EOS
+            break;
+          }
+        } catch (InterruptedException e) {
+          e.printStackTrace();
+          break;
+        }
+      }
+    }
+  }
+
+  private boolean isByteBufferBeyondCurrentRequestRange(ByteBuffer byteBuffer) {
     // current request does not have a range or this is the first request
     if (contentChannelEndOffset == -1) {
       return true;
@@ -512,8 +600,21 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
   private int readObjectContentFromGCS(ByteBuffer byteBuffer) throws IOException {
     int bytesRead = 0;
-    ReadObjectResponse res = resIterator.next();
-
+    ReadObjectResponse res;
+    DownloadOperationParams dParams;
+    try {
+      dParams = readQueue.take();
+    } catch (InterruptedException e) {
+      throw new IOException(
+          String.format("Upstream exception while reading data for '%s'", resourceId));
+    }
+    if (dParams.getException() != null) {
+      throw dParams.getException();
+    }
+    res = dParams.getResponse();
+    if (res == null) {
+      return bytesRead;
+    }
     // When zero-copy marshaller is used, the stream that backs GetObjectMediaResponse
     // should be closed when the message is no longed needed so that all buffers in the
     // stream can be reclaimed. If zero-copy is not used, stream will be null.
@@ -543,8 +644,7 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
       positionForNextRead = positionInGrpcStream;
       if (responseSizeLargerThanRemainingBuffer) {
         invalidateBufferedContent();
-        bufferedContent = content;
-        bufferedContentReadOffset = bytesToWrite;
+        bufferedContent = content.substring(bytesToWrite);
         // This is to keep the stream alive for the message backed by this.
         streamForBufferedContent = stream;
         stream = null;
@@ -647,13 +747,20 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
   }
 
   private void cancelCurrentRequest() {
+    if (downloadOperation != null) {
+      if (!downloadOperation.isDone()) {
+        downloadOperation.cancel(true);
+      }
+      downloadOperation = null;
+      readQueue.clear();
+    }
     if (requestContext != null) {
       requestContext.close();
       requestContext = null;
     }
     // gRPC read calls use blocking server streaming api. On cancellation, iterator can be leaked.
     // To avoid oom, we drain the iterator ref b/210660938
-    drainIterator();
+    // drainIterator();
     resIterator = null;
     List<InputStream> unclosedStreams = getObjectMediaResponseMarshaller.popAllStreams();
     for (InputStream stream : unclosedStreams) {
@@ -765,10 +872,14 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
   @Override
   public void close() {
+    Stopwatch closeWatch = Stopwatch.createStarted();
     metricsRecorder.recordTaggedStat(METHOD, "read_close", REQUESTS, 1L);
     cancelCurrentRequest();
     invalidateBufferedContent();
     channelIsOpen = false;
+    logger.atInfo().log(
+        "GCS gRPC close request complete time:%d,object:'%s'",
+        closeWatch.elapsed(MILLISECONDS), resourceId);
   }
 
   @Override
@@ -781,7 +892,6 @@ public class GoogleCloudStorageGrpcReadChannel implements SeekableByteChannel {
 
   private void invalidateBufferedContent() {
     bufferedContent = null;
-    bufferedContentReadOffset = 0;
     if (streamForBufferedContent != null) {
       try {
         streamForBufferedContent.close();

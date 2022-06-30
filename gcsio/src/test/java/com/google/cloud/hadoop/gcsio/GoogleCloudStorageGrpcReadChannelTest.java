@@ -58,6 +58,8 @@ import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -101,6 +103,8 @@ public final class GoogleCloudStorageGrpcReadChannelTest {
   private Get get;
   private StorageObject storageObject;
   private static final Watchdog watchdog = Watchdog.create(Duration.ofMillis(100));
+
+  private ExecutorService executor = Executors.newCachedThreadPool();
 
   @Before
   public void setUp() throws Exception {
@@ -1507,6 +1511,7 @@ public final class GoogleCloudStorageGrpcReadChannelTest {
       Storage storage, GoogleCloudStorageReadOptions options) throws IOException {
     return new GoogleCloudStorageGrpcReadChannel(
         new FakeStubProvider(mockCredentials),
+        executor,
         storage,
         new StorageResourceId(BUCKET_NAME, OBJECT_NAME),
         watchdog,
@@ -1519,6 +1524,7 @@ public final class GoogleCloudStorageGrpcReadChannelTest {
       throws IOException {
     return new GoogleCloudStorageGrpcReadChannel(
         new FakeStubProvider(mockCredentials),
+        executor,
         storage,
         new StorageResourceId(V1_BUCKET_NAME, OBJECT_NAME),
         watchdog,
@@ -1532,6 +1538,7 @@ public final class GoogleCloudStorageGrpcReadChannelTest {
       throws IOException {
     return new GoogleCloudStorageGrpcReadChannel(
         new FakeStubProvider(mockCredentials),
+        executor,
         storage,
         storageResourceId,
         watchdog,
@@ -1545,6 +1552,7 @@ public final class GoogleCloudStorageGrpcReadChannelTest {
       throws IOException {
     return new GoogleCloudStorageGrpcReadChannel(
         new FakeStubProvider(mockCredentials),
+        executor,
         itemInfo,
         watchdog,
         new NoOpMetricsRecorder(),

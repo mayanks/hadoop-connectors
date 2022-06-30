@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.nullToEmpty;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpResponse;
@@ -39,6 +40,7 @@ import com.google.cloud.hadoop.util.ResilientOperation;
 import com.google.cloud.hadoop.util.RetryDeterminer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.flogger.GoogleLogger;
@@ -227,6 +229,7 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
   /** Returns {@link GoogleCloudStorageItemInfo} used to initialize metadata in constructor. */
   private GoogleCloudStorageItemInfo fetchInitialMetadata() throws IOException {
     StorageObject object;
+    Stopwatch metadataStopwatch = Stopwatch.createStarted();
     try {
       // Request only fields that are used for metadata initialization
       Storage.Objects.Get getObject =
@@ -238,11 +241,18 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
               RetryDeterminer.SOCKET_ERRORS,
               IOException.class,
               sleeper);
+
+      logger.atInfo().log(
+          "GoogleCloudStorageReadChannel:getMetadata complete context:%d,time:%d,resource:%s",
+          Thread.currentThread().getId(), metadataStopwatch.elapsed(MILLISECONDS), resourceId);
     } catch (IOException e) {
       throw errorExtractor.itemNotFound(e)
           ? createFileNotFoundException(resourceId, e)
           : new IOException("Error reading " + resourceId, e);
     } catch (InterruptedException e) {
+      logger.atSevere().withCause(e).log(
+          "GoogleCloudStorageReadChannel:getMetadata exception context:%d,time:%d,resource:%s",
+          Thread.currentThread().getId(), metadataStopwatch.elapsed(MILLISECONDS), resourceId);
       Thread.currentThread().interrupt();
       throw new IOException("Thread interrupt received.", e);
     }
@@ -298,6 +308,7 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
 
     int totalBytesRead = 0;
     int retriesAttempted = 0;
+    Stopwatch readStopwatch = Stopwatch.createStarted();
 
     // We read from a streaming source. We may not get all the bytes we asked for
     // in the first read. Therefore, loop till we either read the required number of
@@ -444,6 +455,12 @@ public class GoogleCloudStorageReadChannel implements SeekableByteChannel {
               currentPosition, size, resourceId));
       return -1;
     }
+    logger.atInfo().log(
+        "GoogleCloudStorageReadChannel:read complete context:%d,time:%d,read:%d,resource:%s",
+        Thread.currentThread().getId(),
+        readStopwatch.elapsed(MILLISECONDS),
+        totalBytesRead,
+        resourceId);
     return totalBytesRead;
   }
 

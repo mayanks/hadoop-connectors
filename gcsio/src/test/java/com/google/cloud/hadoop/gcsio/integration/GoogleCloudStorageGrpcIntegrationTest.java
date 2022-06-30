@@ -332,6 +332,28 @@ public class GoogleCloudStorageGrpcIntegrationTest {
   }
 
   @Test
+  public void testReadPartialData() throws IOException {
+    AsyncWriteChannelOptions asyncWriteChannelOptions = AsyncWriteChannelOptions.builder().build();
+    GoogleCloudStorage rawStorage = createGoogleCloudStorage(asyncWriteChannelOptions);
+    StorageResourceId objectToCreate =
+        new StorageResourceId(BUCKET_NAME, "testReadPartialData_Object");
+    int objectSize = 10 * 1024 * 1024;
+    byte[] objectBytes = writeObject(rawStorage, objectToCreate, /* objectSize= */ objectSize);
+
+    int minRangeRequestSize = 2 * 1024;
+    byte[] trimmedObjectBytes = Arrays.copyOfRange(objectBytes, 0, 64 * 1024);
+    GoogleCloudStorageReadOptions readOptions =
+        GoogleCloudStorageReadOptions.builder().setMinRangeRequestSize(minRangeRequestSize).build();
+    assertObjectContent(
+        rawStorage,
+        objectToCreate,
+        readOptions,
+        trimmedObjectBytes,
+        /* expectedBytesCount= */ 1,
+        0);
+  }
+
+  @Test
   public void testReadCachedFooterData() throws IOException {
     AsyncWriteChannelOptions asyncWriteChannelOptions = AsyncWriteChannelOptions.builder().build();
     GoogleCloudStorage rawStorage = createGoogleCloudStorage(asyncWriteChannelOptions);
